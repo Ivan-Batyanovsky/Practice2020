@@ -1,0 +1,123 @@
+\begin{center}
+\bfseries{\large ТЕХНИЧЕСКИЙ ОТЧЁТ ПО ПРАКТИКЕ}
+\end{center}
+
+\section*{Архитектура}
+\begin{lstlisting}[language=Python]
+from keras.models import Sequential
+from keras import layers
+
+embedding_dim = 50
+
+model2 = Sequential()
+model2.add(layers.Embedding(input_dim=vocab_size, 
+                           output_dim=embedding_dim, 
+                           input_length=maxlen))
+model2.add(layers.GlobalMaxPool1D())
+model2.add(layers.Dense(256, activation='relu'))
+model2.add(layers.Dense(11, activation='softmax'))
+model2.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+model2.summary()
+\end{lstlisting}
+\section*{Описание}
+
+Последовательность запускаемых файлов и их смысл:
+\begin{enumerate}
+    \item lentaScrapper.py
+    
+    Эта программа запускает кролера, который просматривает определенное количество страниц в архиве lenta.ru с разных рубрик. В целом никаких параметров изменять не надо, кроме одного - limit. limit - количество дней, которые нужно просмотреть в ленте начиная с текущего.
+    
+    Что насчет описания работы самого кролера, то страница архива ленты представляет собой(имеется ввиду где нужная информация находится) 3 блока span4, в которой назодятся гиперссылки на статья. 
+    
+    Для получения ссылок на архив разных рубрик программа парсит эти ссылки с главной страницы. Конкатенируя ссылки на рубрики и текущую дату, получаем ссылку на страницу архива, через которую сканируем ссылки на статьи и проходим по архиву через кнопку <, которая хранит ссылку на предыдущий день. Поэтому в теории можно пройтись по всем статьям сайта, но моей главной задачей стояла прежде всего получить опыт в написании кролера, а не полный сбор данных с сайта(кроме того это замет слишком много времени).
+    
+    Для работы Selenium нужно для своего браузера гугл установить соот версию chromedriver.exe
+    
+    \item Save-.py
+    
+    Эта программа переводит данные с MySQL сервера в файл формата .csv, с которым придется в дальнейшем работать при обучении модели.
+    
+    \item output\_with\_sport.csv
+    
+    Итоговая таблица данных(id, title, genre, content)
+    \begin{itemize}
+        \item genre - это название рубрики. Это название стоило бы поменять на rubrics(genre - это унаследованное название с кролера, который я написал сначала для Meduza, однако я решил переделать его для Lenta, т.к. многие статьи в Meduza выложены без конкретного описания тематики)
+    \end{itemize}
+    
+    \item classText.ipynb
+    
+    Ноутбук где последовательно обрабатывается текст, пишется модель, обучается и записаны результаты.
+    
+\end{enumerate}
+
+
+\section*{Реализация}
+
+\begin{lstlisting}[language=Python]
+def crawler(url="", rubric="NULL", date=date.today(),
+depth=0, limit=3, main=False):
+    global pages
+    if main is True:
+        newUrl = "https://lenta.ru" + url + str(date)[:4] + "/" + str(date)[5:7] + "/" + str(date)[8:] + "/"
+    else:
+        newUrl = "https://lenta.ru" + url
+    driver.get(newUrl)
+    print(newUrl, rubric)
+    try:
+        # Waiting for block of news to appear
+        element = WebDriverWait(driver, 10) \
+            .until(EC.presence_of_element_located
+            ((By.CLASS_NAME, "b-layout.js-layout.b-layout_archive")))
+    except:
+        print("Can't locate news block")
+        return
+    finally:
+        bsObj = BeautifulSoup(driver.page_source, "html.parser")
+
+    span4s = bsObj.find("section",
+    {"class": "b-layout js-layout b-layout_archive"})
+    .findAll("div", {"class": "span4"})
+    for span4 in span4s:
+        items = span4.findAll("div", 
+        {"class": "item news b-tabloid__topic_news"})
+        for item in items:
+            if items is not None:
+                newLink = item.find("a", {"href": re.compile("^(\/.*\/).*")})
+                .attrs["href"]
+                if newLink not in pages:
+                    pages.add(newLink)
+                    parser(newLink, rubric)
+    if depth < limit:
+        print("Push some buttons sometimes(dep, lim):", depth + 1, limit)
+        crawler(url=bsObj.find("a", {"class": "control_mini"})
+        .attrs["href"], rubric=rubric, depth=depth + 1, limit=limit, date=date)
+
+\end{lstlisting}
+
+\section*{Тестирование}
+
+text = "В наступившем году должны состояться первые с июля 2011\го пилотируемые полеты США к МКС на собственных космических кораблях (до этого США отправляли своих астронавтов на околоземную орбиту при помощи многоразовых космических кораблей Space Shuttle). Скорее всего, первым из них в первом полугодии стартует Crew Dragon компании SpaceX, в декабре 2019-го успешно завершивший испытания парашютной системы, к которой ранее у НАСА были претензии, а до этого, в марте того же года, выполнивший первый (в беспилотном режиме) полет к МКС."
+
+\begin{lstlisting}[language=Python]
+re = tokenizer.texts_to_sequences([text])
+resu = pad_sequences(re, padding='post', maxlen=maxlen)
+otvet = model2.predict(resu)
+
+print(np.where(otvet == np.amax(otvet))[1])
+print(maper)
+
+[6]
+{"'russia'": 1, "'world'": 2, "'ussr'": 3, "'economics'": 4,
+"'forces'": 5, "'science'": 6, "'culture'": 7, "'sport'": 8,
+"'media'": 9, "'style'": 10}
+\end{lstlisting}
+
+В данном примере я взял новость из категории наука  https://lenta.ru/articles/2020/01/08/2020/. Ответ [6] означает, что данная новость относится к категории наука, что верно. 
+
+\section*{Ссылка на GitHub}
+
+https://github.com/Ivan-Batyanovsky/Practice2020
+
+\pagebreak
